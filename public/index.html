@@ -21,6 +21,19 @@
         /* Админ-бейдж */
         #admin-badge { position: absolute; top: 10px; left: 10px; background: #ff9800; color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; display: none; z-index: 50; }
 
+        /* Список игроков для личных сообщений (над чатом) */
+        #players-list-container { margin-bottom: 6px; font-size: 13px; color: #ddd; }
+        #players-list-title { font-weight: bold; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+        #players-list { display: flex; flex-wrap: wrap; gap: 6px; }
+        .player-item { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px; user-select: none; transition: background 0.2s; }
+        .player-item:hover { background: rgba(255,255,255,0.2); }
+        .player-item.me { border-color: #4CAF50; background: rgba(76, 175, 80, 0.2); }
+        .player-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }
+
+        /* Кнопка удаления для админа — корзина */
+        .msg.admin-del { cursor: pointer; color: #ff6666; font-size: 16px; float: right; margin-left: 8px; line-height: 1; }
+        .msg.admin-del:hover { color: #fff; background: rgba(255,102,102,0.2); padding: 2px 4px; border-radius: 3px; }
+
         /* Оверлей ввода имени (не перекрывает поле полностью — видно игру сквозь него) */
         #name-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; backdrop-filter: blur(4px); }
         #name-overlay input { padding: 10px; font-size: 16px; margin-top: 10px; border: none; border-radius: 4px; }
@@ -35,6 +48,15 @@
 
     <!-- Окно чата поверх игры -->
     <div id="chat-container">
+        <!-- Список игроков для личных сообщений -->
+        <div id="players-list-container">
+            <div id="players-list-title">
+                <span>Игроки для ЛС:</span>
+                <span id="players-count">0</span>
+            </div>
+            <div id="players-list"></div>
+        </div>
+
         <div id="chat-messages"></div>
         <input type="text" id="chat-input" placeholder="Сообщение или /w Имя текст" maxlength="100">
     </div>
@@ -57,6 +79,8 @@
         const nameInput = document.getElementById('name-input');
         const nameSubmit = document.getElementById('name-submit');
         const adminBadge = document.getElementById('admin-badge');
+        const playersListEl = document.getElementById('players-list');
+        const playersCountEl = document.getElementById('players-count');
 
         let players = {};
         let myId = null;
@@ -83,6 +107,42 @@
             if (e.key === 'Enter') submitName();
         });
 
+        // Отрисовать список игроков для ЛС
+        function renderPlayersList() {
+            playersListEl.innerHTML = '';
+            const ids = Object.keys(players);
+            playersCountEl.textContent = ids.length;
+
+            ids.forEach(id => {
+                const p = players[id];
+                if (!p) return;
+
+                const item = document.createElement('div');
+                item.classList.add('player-item');
+                if (id === myId) item.classList.add('me');
+
+                const dot = document.createElement('span');
+                dot.classList.add('player-dot');
+                dot.style.backgroundColor = p.color || '#fff';
+
+                const name = document.createElement('span');
+                name.textContent = p.name || `Игрок${id.substring(0,4)}`;
+                if (id === myId) name.textContent += ' (вы)';
+
+                item.appendChild(dot);
+                item.appendChild(name);
+
+                // Клик по игроку — вставить команду личного сообщения в чат
+                item.addEventListener('click', () => {
+                    const targetName = p.name || `Игрок${id.substring(0,4)}`;
+                    chatInput.value = `/w ${targetName} `;
+                    chatInput.focus();
+                });
+
+                playersListEl.appendChild(item);
+            });
+        }
+
         socket.on('connect', () => { myId = socket.id; });
         socket.on('adminStatus', (isAdminFlag) => {
             isAdmin = isAdminFlag;
@@ -92,13 +152,14 @@
             isAdmin = (myId === newAdminId);
             adminBadge.style.display = isAdmin ? 'block' : 'none';
         });
-        socket.on('currentPlayers', (serverPlayers) => { players = serverPlayers; });
-        socket.on('newPlayer', (data) => { players[data.id] = data.info; });
+        socket.on('currentPlayers', (serverPlayers) => { players = serverPlayers; renderPlayersList(); });
+        socket.on('newPlayer', (data) => { players[data.id] = data.info; renderPlayersList(); });
         socket.on('playerRenamed', (data) => {
             if (players[data.id]) players[data.id].name = data.name;
+            renderPlayersList();
         });
         socket.on('playerMoved', (data) => { if(players[data.id]) { players[data.id].x = data.x; players[data.id].y = data.y; } });
-        socket.on('playerDisconnected', (id) => { delete players[id]; });
+        socket.on('playerDisconnected', (id) => { delete players[id]; renderPlayersList(); });
 
         // История чата при подключении
         socket.on('chatHistory', (history) => {
@@ -140,7 +201,7 @@
             let html = `<span style="color: ${data.color || '#fff'}; font-weight: bold;">[${senderName}]:</span> ${escapeHtml(data.text)}`;
 
             if (isAdmin && !data.system && data.fromId !== 'system' && data.fromId !== myId) {
-                html += ` <span class="admin-del" title="Удалить сообщение #${data.id}">[×]</span>`;
+                html += ` <span class="admin-del" title="Удалить сообщение #${data.id}">🗑️</span>`;
             }
 
             div.innerHTML = html;
