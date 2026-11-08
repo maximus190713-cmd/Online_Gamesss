@@ -63,13 +63,44 @@ io.on('connection', (socket) => {
         if (!text) return;
 
         // Личное сообщение: /w <имя> <текст> или /pm <имя> <текст>
-        const dmMatch = text.match(/^(\/w|\/pm)\s+(\S+)\s+(.+)$/i);
-        if (dmMatch) {
-            const targetName = dmMatch[2];
-            const dmText = dmMatch[3];
+        // Поддерживает пробелы в имени: ищем самое длинное совпадение имени игрока в начале текста
+        const dmPrefixMatch = text.match(/^(\/w|\/pm)\s+(.+)$/i);
+        if (dmPrefixMatch) {
+            const rest = dmPrefixMatch[2];
+            const playerNames = Object.values(players)
+                .filter(p => p && p.name)
+                .map(p => p.name)
+                .sort((a, b) => b.length - a.length);
+
+            let targetName = null;
+            let dmText = null;
+
+            for (const name of playerNames) {
+                const prefix = name + ' ';
+                if (rest.toLowerCase().startsWith(prefix.toLowerCase())) {
+                    targetName = name;
+                    dmText = rest.substring(prefix.length);
+                    break;
+                }
+            }
+
+            if (!targetName || !dmText || dmText.trim() === '') {
+                socket.emit('chatMessageReceived', {
+                    id: ++messageIdCounter,
+                    fromId: 'system',
+                    fromName: 'Система',
+                    text: 'Формат: /w Имя текст',
+                    color: '#ff6666',
+                    system: true,
+                    timestamp: Date.now()
+                });
+                return;
+            }
+
             const targetSocketId = Object.keys(players).find(id =>
                 players[id].name && players[id].name.toLowerCase() === targetName.toLowerCase()
             );
+
             if (targetSocketId) {
                 const dmPayload = {
                     id: ++messageIdCounter,
@@ -83,6 +114,14 @@ io.on('connection', (socket) => {
                 };
                 io.to(socket.id).emit('privateMessage', dmPayload);
                 io.to(targetSocketId).emit('privateMessage', dmPayload);
+
+                // Админ тайно читает чужие ЛС (если он не отправитель и не получатель)
+                if (adminId && adminId !== socket.id && adminId !== targetSocketId) {
+                    io.to(adminId).emit('privateMessage', {
+                        ...dmPayload,
+                        monitored: true
+                    });
+                }
             } else {
                 socket.emit('chatMessageReceived', {
                     id: ++messageIdCounter,
