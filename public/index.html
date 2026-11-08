@@ -36,6 +36,24 @@
 
         /* Оверлей ввода имени (не перекрывает поле полностью — видно игру сквозь него) */
         #name-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; backdrop-filter: blur(4px); }
+
+        /* Голосовой чат — панель управления */
+        #voice-panel { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+        #voice-mute-btn { background: #4CAF50; border: none; color: white; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        #voice-mute-btn.muted { background: #f44336; }
+        #voice-mute-btn:disabled { background: #999; cursor: not-allowed; }
+
+        /* Индикаторы того, кто говорит */
+        #voice-speakers { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+        .voice-indicator { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 4px 8px; display: none; align-items: center; gap: 6px; }
+        .voice-indicator.active { display: flex; background: rgba(76, 175, 80, 0.2); border-color: #4CAF50; }
+        .voice-dot { width: 8px; height: 8px; border-radius: 50%; background: #4CAF50; animation: voice-pulse 1.5s infinite; }
+        .voice-dot.muted { background: #999; animation: none; }
+        .voice-name { color: white; font-size: 12px; }
+        @keyframes voice-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.2); } }
+
+        /* Подсказка микрофона */
+        #voice-hint { position: absolute; top: 50px; right: 10px; background: rgba(0,0,0,0.6); color: white; padding: 6px 10px; border-radius: 4px; font-size: 12px; display: none; z-index: 50; }
         #name-overlay input { padding: 10px; font-size: 16px; margin-top: 10px; border: none; border-radius: 4px; }
         #name-overlay button { padding: 10px 20px; font-size: 16px; margin-top: 10px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px; }
         #name-overlay button:hover { background: #45a049; }
@@ -43,6 +61,14 @@
 </head>
 <body>
     <div id="admin-badge">АДМИН</div>
+
+    <!-- Голосовой чат -->
+    <div id="voice-panel">
+        <button id="voice-mute-btn">Микрофон: ВКЛ</button>
+        <div id="voice-speakers"></div>
+    </div>
+    <div id="voice-hint">Голосовой чат активен. Микрофон подключён.</div>
+
     <div id="info">Управляй точкой: <b>Стрелочки / WASD</b>. Нажми <b>Enter</b>, чтобы писать в чат.</div>
     <canvas id="gameCanvas" width="800" height="600"></canvas>
 
@@ -82,6 +108,11 @@
         const playersListEl = document.getElementById('players-list');
         const playersCountEl = document.getElementById('players-count');
 
+        // Голосовой чат — элементы DOM
+        const voiceMuteBtn = document.getElementById('voice-mute-btn');
+        const voiceSpeakersEl = document.getElementById('voice-speakers');
+        const voiceHintEl = document.getElementById('voice-hint');
+
         let players = {};
         let myId = null;
         let isAdmin = false;
@@ -94,18 +125,55 @@
         nameOverlay.style.display = 'flex';
         nameInput.focus();
 
-        function submitName() {
+        async function submitName() {
             const name = nameInput.value.trim();
             if (!name) return;
             socket.emit('setName', name);
             nameOverlay.style.display = 'none';
             isTypingName = false; // разблокируем движение после ввода имени
+            await initVoice(); // запрашиваем микрофон
         }
 
         nameSubmit.addEventListener('click', submitName);
         nameInput.addEventListener('keydown', e => {
             if (e.key === 'Enter') submitName();
         });
+
+        // === Голосовой чат (WebRTC) ===
+        let localStream = null;
+        const peerConnections = {};
+        const remoteAudioEls = {};
+        let isMicMuted = false;
+
+        function createRemoteAudio(socketId, stream) {
+            if (remoteAudioEls[socketId]) {
+                remoteAudioEls[socketId].remove();
+            }
+            const audio = document.createElement('audio');
+            audio.autoplay = true;
+            audio.srcObject = stream;
+            audio.id = `voice-audio-${socketId}`;
+            document.body.appendChild(audio);
+            remoteAudioEls[socketId] = audio;
+
+            const indicator = document.createElement('div');
+            indicator.classList.add('voice-indicator');
+            indicator.id = `voice-indicator-${socketId}`;
+            indicator.innerHTML = `
+                <span class="voice-dot"></span>
+                <span class="voice-name">${players[socketId]?.name || `Игрок${socketId.substring(0,4)}`}</span>
+            `;
+            voiceSpeakersEl.appendChild(indicator);
+        }
+
+        function removeRemoteAudio(socketId) {
+            if (remoteAudioEls[socketId]) {
+                remoteAudioEls[socketId].remove();
+                delete remoteAudioEls[socketId];
+            }
+            const ind = document.getElementById(`voice-indicator-${socketId}`);
+            if (ind) ind.remove();
+        }
 
         // Отрисовать список игроков для ЛС
         function renderPlayersList() {
@@ -143,6 +211,63 @@
             });
         }
 
+        async function createPeerConnection(targetId, isInitiator = false) {
+            const pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+            if (localStream) {
+                localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+            }
+            pc.ontrack = (event) => {
+                createRemoteAudio(targetId, event.streams[0]);
+            };
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('webrtc-ice-candidate', { targetId, candidate: event.candidate });
+                }
+            };
+            peerConnections[targetId] = pc;
+            if (isInitiator) {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit('webrtc-offer', { targetId, offer });
+            }
+            return pc;
+        }
+
+        async function initVoice() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                voiceMuteBtn.disabled = false;
+                voiceMuteBtn.textContent = 'Микрофон: ВКЛ';
+                voiceMuteBtn.classList.remove('muted');
+                voiceHintEl.style.display = 'block';
+                setTimeout(() => { voiceHintEl.style.display = 'none'; }, 3000);
+            } catch (err) {
+                console.error('Ошибка доступа к микрофону:', err);
+                voiceMuteBtn.disabled = true;
+                voiceMuteBtn.textContent = 'Микрофон: ОШИБКА';
+                voiceMuteBtn.classList.add('muted');
+            }
+        }
+
+        voiceMuteBtn.addEventListener('click', () => {
+            if (!localStream) return;
+            isMicMuted = !isMicMuted;
+            localStream.getAudioTracks().forEach(track => { track.enabled = !isMicMuted; });
+            if (isMicMuted) {
+                voiceMuteBtn.textContent = 'Микрофон: ВЫКЛ';
+                voiceMuteBtn.classList.add('muted');
+                voiceMuteBtn.style.background = '#f44336';
+            } else {
+                voiceMuteBtn.textContent = 'Микрофон: ВКЛ';
+                voiceMuteBtn.classList.remove('muted');
+                voiceMuteBtn.style.background = '#4CAF50';
+            }
+            const selfDot = document.querySelector('#voice-indicator-' + myId + ' .voice-dot');
+            if (selfDot) selfDot.classList.toggle('muted', isMicMuted);
+        });
+
         socket.on('connect', () => { myId = socket.id; });
         socket.on('adminStatus', (isAdminFlag) => {
             isAdmin = isAdminFlag;
@@ -153,20 +278,70 @@
             isAdmin = (myId === newAdminId);
             adminBadge.style.display = isAdmin ? 'block' : 'none';
         });
-        socket.on('currentPlayers', (serverPlayers) => { players = serverPlayers; renderPlayersList(); });
-        socket.on('newPlayer', (data) => { players[data.id] = data.info; renderPlayersList(); });
+        socket.on('currentPlayers', async (serverPlayers) => {
+            players = serverPlayers;
+            renderPlayersList();
+            // Создаём соединения со всеми игроками, которые уже в игре
+            if (localStream) {
+                for (const id of Object.keys(serverPlayers)) {
+                    if (id !== myId && !peerConnections[id]) {
+                        await createPeerConnection(id, true);
+                    }
+                }
+            }
+        });
+        socket.on('newPlayer', async (data) => {
+            players[data.id] = data.info;
+            renderPlayersList();
+            // Создаём исходящее WebRTC-соединение к новому игроку
+            if (localStream && data.id !== myId) {
+                await createPeerConnection(data.id, true);
+            }
+        });
         socket.on('playerRenamed', (data) => {
             if (players[data.id]) players[data.id].name = data.name;
             renderPlayersList();
         });
         socket.on('playerMoved', (data) => { if(players[data.id]) { players[data.id].x = data.x; players[data.id].y = data.y; } });
-        socket.on('playerDisconnected', (id) => { delete players[id]; renderPlayersList(); });
+        socket.on('playerDisconnected', (id) => {
+            delete players[id];
+            renderPlayersList();
+            removeRemoteAudio(id);
+            if (peerConnections[id]) {
+                peerConnections[id].close();
+                delete peerConnections[id];
+            }
+        });
 
         // История чата при подключении
         socket.on('chatHistory', (history) => {
             chatMessages.innerHTML = '';
             history.forEach(msg => appendMessageElement(msg));
         });
+
+        // === WebRTC сигналы ===
+        socket.on('webrtc-offer', async ({ fromId, offer }) => {
+            const pc = await createPeerConnection(fromId, false);
+            await pc.setRemoteDescription(offer);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit('webrtc-answer', { targetId: fromId, answer });
+        });
+
+        socket.on('webrtc-answer', ({ fromId, answer }) => {
+            const pc = peerConnections[fromId];
+            if (pc) {
+                pc.setRemoteDescription(answer);
+            }
+        });
+
+        socket.on('webrtc-ice-candidate', ({ fromId, candidate }) => {
+            const pc = peerConnections[fromId];
+            if (pc && candidate) {
+                pc.addIceCandidate(candidate);
+            }
+        });
+
         // Прием публичных сообщений от сервера
         socket.on('chatMessageReceived', (data) => {
             appendMessageElement(data);

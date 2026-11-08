@@ -51,6 +51,22 @@ io.on('connection', (socket) => {
         }
     });
 
+    // === WebRTC сигнализация для голосового чата ===
+    // Пересылаем Offer от одного игрока другому
+    socket.on('webrtc-offer', ({ targetId, offer }) => {
+        io.to(targetId).emit('webrtc-offer', { fromId: socket.id, offer });
+    });
+
+    // Пересылаем Answer от одного игрока другому
+    socket.on('webrtc-answer', ({ targetId, answer }) => {
+        io.to(targetId).emit('webrtc-answer', { fromId: socket.id, answer });
+    });
+
+    // Пересылаем ICE-кандидаты
+    socket.on('webrtc-ice-candidate', ({ targetId, candidate }) => {
+        io.to(targetId).emit('webrtc-ice-candidate', { fromId: socket.id, candidate });
+    });
+
     // Установка имени игрока
     socket.on('setName', (newName) => {
         const trimmed = (newName || '').trim();
