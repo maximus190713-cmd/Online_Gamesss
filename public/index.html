@@ -214,13 +214,13 @@
             const senderName = data.fromName || 'Система';
             let html = `<span style="color: ${data.color || '#fff'}; font-weight: bold;">[${senderName}]:</span> ${escapeHtml(data.text)}`;
 
-            if (isAdmin && !data.system && data.fromId !== 'system' && data.fromId !== myId) {
+            if (isAdmin && !data.system && data.fromId !== 'system') {
                 html += ` <span class="admin-del" title="Удалить сообщение #${data.id}">🗑️</span>`;
             }
 
             div.innerHTML = html;
 
-            if (isAdmin && !data.system && data.fromId !== 'system' && data.fromId !== myId) {
+            if (isAdmin && !data.system && data.fromId !== 'system') {
                 const delBtn = div.querySelector('.admin-del');
                 delBtn.addEventListener('click', () => {
                     socket.emit('chatMessage', `/delete ${data.id}`);

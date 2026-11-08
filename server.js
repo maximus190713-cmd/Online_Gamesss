@@ -11,17 +11,25 @@ const players = {};
 const chatHistory = [];
 const MAX_HISTORY = 50;
 let messageIdCounter = 0;
-let adminId = null; // первый подключившийся игрок становится админом
+let adminId = null;
+
+// === НАСТРОЙКА АДМИНА ===
+// Впишите сюда свой socket.id, чтобы быть админом постоянно.
+// socket.id можно узнать в консоли сервера при подключении: "Игрок подключился: XXXXXX"
+const FIXED_ADMIN_ID = null; // пример: 'abc123def456'
 
 app.use(express.static(__dirname + '/public'));
 
 io.on('connection', (socket) => {
     console.log(`Игрок подключился: ${socket.id}`);
 
-    // Первого игрока делаем админом
-    if (!adminId) {
+    // Определяем админа
+    if (FIXED_ADMIN_ID && socket.id === FIXED_ADMIN_ID) {
         adminId = socket.id;
-        console.log(`Админ установлен: ${adminId}`);
+        console.log(`Админ (постоянный) установлен: ${adminId}`);
+    } else if (!adminId) {
+        adminId = socket.id;
+        console.log(`Админ (первый игрок) установлен: ${adminId}`);
     }
 
     players[socket.id] = {
@@ -195,13 +203,19 @@ io.on('connection', (socket) => {
         io.emit('playerDisconnected', socket.id);
 
         if (wasAdmin) {
-            const remaining = Object.keys(players);
-            if (remaining.length > 0) {
-                adminId = remaining[0];
-                io.emit('adminChanged', adminId);
-            } else {
+            // Если уходил постоянный админ — сбрасываем, пока он не вернется
+            if (FIXED_ADMIN_ID && socket.id === FIXED_ADMIN_ID) {
                 adminId = null;
                 io.emit('adminChanged', null);
+            } else {
+                const remaining = Object.keys(players);
+                if (remaining.length > 0) {
+                    adminId = remaining[0];
+                    io.emit('adminChanged', adminId);
+                } else {
+                    adminId = null;
+                    io.emit('adminChanged', null);
+                }
             }
         }
     });
