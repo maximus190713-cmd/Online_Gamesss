@@ -146,6 +146,7 @@
         socket.on('connect', () => { myId = socket.id; });
         socket.on('adminStatus', (isAdminFlag) => {
             isAdmin = isAdminFlag;
+            console.log('Админ-статус:', isAdmin);
             adminBadge.style.display = isAdmin ? 'block' : 'none';
         });
         socket.on('adminChanged', (newAdminId) => {

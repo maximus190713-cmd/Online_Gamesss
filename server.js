@@ -67,7 +67,9 @@ io.on('connection', (socket) => {
         if (dmMatch) {
             const targetName = dmMatch[2];
             const dmText = dmMatch[3];
-            const targetSocketId = Object.keys(players).find(id => players[id].name === targetName);
+            const targetSocketId = Object.keys(players).find(id =>
+                players[id].name && players[id].name.toLowerCase() === targetName.toLowerCase()
+            );
             if (targetSocketId) {
                 const dmPayload = {
                     id: ++messageIdCounter,
