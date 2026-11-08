@@ -14,22 +14,18 @@ let messageIdCounter = 0;
 let adminId = null;
 
 // === НАСТРОЙКА АДМИНА ===
-// Впишите сюда свой socket.id, чтобы быть админом постоянно.
-// socket.id можно узнать в консоли сервера при подключении: "Игрок подключился: XXXXXX"
-const FIXED_ADMIN_ID = null; // пример: 'abc123def456'
+// Придумайте себе пароль для админ-прав. Вводите в чате: /admin ваш_пароль
+const ADMIN_PASSWORD = 'пароль король орёл'; // <-- ЗДЕСЬ ВПИШИТЕ СВОЙ ПАРОЛЬ
 
 app.use(express.static(__dirname + '/public'));
 
 io.on('connection', (socket) => {
     console.log(`Игрок подключился: ${socket.id}`);
 
-    // Определяем админа
-    if (FIXED_ADMIN_ID && socket.id === FIXED_ADMIN_ID) {
-        adminId = socket.id;
-        console.log(`Админ (постоянный) установлен: ${adminId}`);
-    } else if (!adminId) {
-        adminId = socket.id;
-        console.log(`Админ (первый игрок) установлен: ${adminId}`);
+    // Админа теперь назначает пароль через команду /admin <пароль> в чате
+    // Первого игрока пока не делаем админом автоматически
+    if (!adminId) {
+        console.log(`Админ пока не назначен. Ждём команду /admin <пароль>`);
     }
 
     players[socket.id] = {
@@ -69,6 +65,37 @@ io.on('connection', (socket) => {
         const sender = players[socket.id];
         const text = messageText.trim();
         if (!text) return;
+
+        // Команда назначения админа: /admin <пароль>
+        const adminMatch = text.match(/^\/admin\s+(.+)$/i);
+        if (adminMatch) {
+            const providedPassword = adminMatch[1];
+            if (providedPassword === ADMIN_PASSWORD) {
+                adminId = socket.id;
+                io.emit('adminChanged', adminId);
+                socket.emit('chatMessageReceived', {
+                    id: ++messageIdCounter,
+                    fromId: 'system',
+                    fromName: 'Система',
+                    text: 'Вы стали админом!',
+                    color: '#ff9800',
+                    system: true,
+                    timestamp: Date.now()
+                });
+                console.log(`Админ назначен через пароль: ${socket.id}`);
+            } else {
+                socket.emit('chatMessageReceived', {
+                    id: ++messageIdCounter,
+                    fromId: 'system',
+                    fromName: 'Система',
+                    text: 'Неверный пароль админа.',
+                    color: '#ff6666',
+                    system: true,
+                    timestamp: Date.now()
+                });
+            }
+            return;
+        }
 
         // Личное сообщение: /w <имя> <текст> или /pm <имя> <текст>
         // Поддерживает пробелы в имени: ищем самое длинное совпадение имени игрока в начале текста
@@ -203,19 +230,13 @@ io.on('connection', (socket) => {
         io.emit('playerDisconnected', socket.id);
 
         if (wasAdmin) {
-            // Если уходил постоянный админ — сбрасываем, пока он не вернется
-            if (FIXED_ADMIN_ID && socket.id === FIXED_ADMIN_ID) {
+            const remaining = Object.keys(players);
+            if (remaining.length > 0) {
+                adminId = remaining[0];
+                io.emit('adminChanged', adminId);
+            } else {
                 adminId = null;
                 io.emit('adminChanged', null);
-            } else {
-                const remaining = Object.keys(players);
-                if (remaining.length > 0) {
-                    adminId = remaining[0];
-                    io.emit('adminChanged', adminId);
-                } else {
-                    adminId = null;
-                    io.emit('adminChanged', null);
-                }
             }
         }
     });
