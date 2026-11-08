@@ -43,7 +43,7 @@
 </head>
 <body>
     <div id="admin-badge">АДМИН</div>
-    <div id="info">Управляй точкой: <b>Стрелочки / WASD</b>. Нажми <b>Enter</b>, чтобы писать в чат. Админ: <b>/admin пароль</b></div>
+    <div id="info">Управляй точкой: <b>Стрелочки / WASD</b>. Нажми <b>Enter</b>, чтобы писать в чат.</div>
     <canvas id="gameCanvas" width="800" height="600"></canvas>
 
     <!-- Окно чата поверх игры -->
@@ -235,7 +235,7 @@
 
         // Отслеживание клавиатуры
         window.addEventListener('keydown', e => {
-            // Если вводим имя
+            // Если вводим имя на оверлее
             if (isTypingName) {
                 if (e.key === 'Enter') {
                     submitName();
@@ -243,11 +243,10 @@
                 return;
             }
 
-            // Если пишем в чат
-            if (isTyping) {
+            // Если фокус в поле ввода чата — только отправка по Enter, движение заблокировано
+            if (document.activeElement === chatInput) {
                 if (e.key === 'Enter') {
-                    // Отправляем сообщение
-                    isTyping = false;
+                    e.preventDefault();
                     const text = chatInput.value.trim();
                     if (text !== '') {
                         socket.emit('chatMessage', text);
@@ -261,8 +260,6 @@
 
             // Обычный игровой режим
             if (e.key === 'Enter') {
-                // Включаем режим ввода текста
-                isTyping = true;
                 chatInput.focus();
                 return;
             }
@@ -276,7 +273,7 @@
         });
 
         function update() {
-            if (!myId || !players[myId] || isTyping || isTypingName) return;
+            if (!myId || !players[myId] || isTypingName || document.activeElement === chatInput) return;
 
             let moved = false;
             if (keys['KeyA'] || keys['ArrowLeft'])  { players[myId].x -= speed; moved = true; }
