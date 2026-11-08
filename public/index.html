@@ -179,6 +179,12 @@
         socket.on('privateMessage', (data) => {
             const el = appendMessageElement(data, true);
             el.classList.add('private');
+            if (data.monitored) {
+                const marker = document.createElement('span');
+                marker.style.cssText = 'float: right; font-size: 11px; color: #ff9800; margin-left: 8px;';
+                marker.textContent = '👁️ прослушка';
+                el.appendChild(marker);
+            }
         });
 
         // Удаление сообщения админом
