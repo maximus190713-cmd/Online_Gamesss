@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Моя Онлайн Игра с Чатом</title>
+    <style>
+        body { margin: 0; background: #222; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: sans-serif; overflow: hidden; }
+        canvas { background: #111; border: 2px solid #555; }
+        #info { position: absolute; top: 10px; text-align: center; }
+        
+        /* Стили для блока чата */
+        #chat-container { position: absolute; bottom: 20px; left: 20px; width: 250px; background: rgba(0, 0, 0, 0.7); border: 1px solid #555; padding: 10px; border-radius: 5px; display: flex; flex-direction: column; }
+        #chat-messages { height: 150px; overflow-y: auto; margin-bottom: 5px; font-size: 14px; display: flex; flex-direction: column; }
+        #chat-input { background: #333; border: 1px solid #555; color: white; padding: 5px; border-radius: 3px; outline: none; }
+        .msg { margin-bottom: 4px; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <div id="info">Управляй точкой: <b>Стрелочки / WASD</b>. Нажми <b>Enter</b>, чтобы писать в чат.</div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <!-- Окно чата поверх игры -->
+    <div id="chat-container">
+        <div id="chat-messages"></div>
+        <input type="text" id="chat-input" placeholder="Нажмите Enter для чата..." maxlength="50">
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const chatInput = document.getElementById('chat-input');
+        const chatMessages = document.getElementById('chat-messages');
+
+        let players = {};
+        let myId = null;
+        const speed = 5;
+        const keys = {};
+        let isTyping = false; // Флаг: пишет ли игрок в данный момент
+
+        socket.on('connect', () => { myId = socket.id; });
+        socket.on('currentPlayers', (serverPlayers) => { players = serverPlayers; });
+        socket.on('newPlayer', (data) => { players[data.id] = data.info; });
+        socket.on('playerMoved', (data) => { if(players[data.id]) { players[data.id].x = data.x; players[data.id].y = data.y; } });
+        socket.on('playerDisconnected', (id) => { delete players[id]; });
+
+        // Прием сообщений от сервера
+        socket.on('chatMessageReceived', (data) => {
+            const msgElement = document.createElement('div');
+            msgElement.classList.add('msg');
+            // Короткое имя игрока из его ID
+            const shortId = data.id.substring(0, 4); 
+            msgElement.innerHTML = `<span style="color: ${data.color}; font-weight: bold;">[${shortId}]:</span> ${data.text}`;
+            chatMessages.appendChild(msgElement);
+            chatMessages.scrollTop = chatMessages.scrollHeight; // Прокрутка чата вниз
+        });
+
+        // Отслеживание клавиатуры
+        window.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                if (!isTyping) {
+                    // Включаем режим ввода текста
+                    isTyping = true;
+                    chatInput.focus();
+                } else {
+                    // Отправляем сообщение
+                    isTyping = false;
+                    const text = chatInput.value.trim();
+                    if (text !== '') {
+                        socket.emit('chatMessage', text);
+                    }
+                    chatInput.value = '';
+                    chatInput.blur();
+                    canvas.focus();
+                }
+                return;
+            }
+
+            // Если игрок сейчас пишет в чат, то его точка НЕ должна двигаться от клавиш WASD
+            if (!isTyping) {
+                keys[e.key.toLowerCase()] = true;
+            }
+        });
+
+        window.addEventListener('keyup', e => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        function update() {
+            if (!myId || !players[myId] || isTyping) return;
+
+            let moved = false;
+            if (keys['a'] || keys['arrowleft'])  { players[myId].x -= speed; moved = true; }
+            if (keys['d'] || keys['arrowright']) { players[myId].x += speed; moved = true; }
+            if (keys['w'] || keys['arrowup'])    { players[myId].y -= speed; moved = true; }
+            if (keys['s'] || keys['arrowdown'])  { players[myId].y += speed; moved = true; }
+
+            players[myId].x = Math.max(15, Math.min(canvas.width - 15, players[myId].x));
+            players[myId].y = Math.max(15, Math.min(canvas.height - 15, players[myId].y));
+
+            if (moved) {
+                socket.emit('playerMovement', { x: players[myId].x, y: players[myId].y });
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            Object.keys(players).forEach(id => {
+                const player = players[id];
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, 15, 0, Math.PI * 2);
+                ctx.fillStyle = player.color;
+                ctx.fill();
+                ctx.closePath();
+
+                if (id === myId) {
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                }
+            });
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>

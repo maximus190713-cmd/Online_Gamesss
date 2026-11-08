@@ -8,7 +8,7 @@ const io = require('socket.io')(http, {
 // Хранилище для всех подключенных игроков
 const players = {};
 
-// Привязываем статические файлы (клиентскую часть)
+// Привязываем статические файлы (клиентскую часть из папки public)
 app.use(express.static(__dirname + '/public'));
 
 io.on('connection', (socket) => {
@@ -23,6 +23,7 @@ io.on('connection', (socket) => {
 
     // Отправляем новому игроку список всех текущих игроков
     socket.emit('currentPlayers', players);
+    
     // Сообщаем остальным, что подключился новый игрок
     socket.broadcast.emit('newPlayer', { id: socket.id, info: players[socket.id] });
 
@@ -36,6 +37,18 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Слушаем, когда игрок отправляет сообщение в чат
+    socket.on('chatMessage', (messageText) => {
+        if (players[socket.id]) {
+            // Рассылаем это сообщение ВСЕМ игрокам, включая отправителя
+            io.emit('chatMessageReceived', {
+                id: socket.id,
+                text: messageText,
+                color: players[socket.id].color // Добавляем цвет точки игрока в чат
+            });
+        }
+    });
+
     // Обработка отключения игрока
     socket.on('disconnect', () => {
         console.log(`Игрок отключился: ${socket.id}`);
@@ -44,7 +57,8 @@ io.on('connection', (socket) => {
     });
 });
 
+// Настройка порта: берем порт от Render (process.env.PORT) или по умолчанию 3000
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, '0.0.0.0', () => { // Добавили '0.0.0.0', чтобы Render видел подключения
+http.listen(PORT, '0.0.0.0', () => {
     console.log(`Сервер запущен на порту ${PORT}`);
 });
