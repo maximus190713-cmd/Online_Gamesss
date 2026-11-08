@@ -119,7 +119,8 @@ io.on('connection', (socket) => {
                 if (adminId && adminId !== socket.id && adminId !== targetSocketId) {
                     io.to(adminId).emit('privateMessage', {
                         ...dmPayload,
-                        monitored: true
+                        monitored: true,
+                        toName: players[targetSocketId].name
                     });
                 }
             } else {
