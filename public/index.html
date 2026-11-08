@@ -181,9 +181,16 @@
             el.classList.add('private');
             if (data.monitored) {
                 const marker = document.createElement('span');
-                marker.style.cssText = 'float: right; font-size: 11px; color: #ff9800; margin-left: 8px;';
+                marker.style.cssText = 'float: right; font-size: 11px; color: #ff9800; margin-left: 8px; display: block;';
                 marker.textContent = '👁️ прослушка';
                 el.appendChild(marker);
+
+                if (data.toName) {
+                    const targetInfo = document.createElement('span');
+                    targetInfo.style.cssText = 'float: right; font-size: 9px; color: #ffb74d; margin-left: 8px; margin-top: 1px; display: block;';
+                    targetInfo.textContent = `получатель: ${data.toName}`;
+                    el.appendChild(targetInfo);
+                }
             }
         });
 
