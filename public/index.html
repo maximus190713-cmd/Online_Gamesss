@@ -160,14 +160,31 @@
 
         // Отслеживание клавиатуры
         window.addEventListener('keydown', e => {
-            // Если вводим имя или пишем в чат — не двигаемся
-            if (isTypingName || isTyping) {
-                if (e.key === 'Enter' && isTypingName) {
+            // Если вводим имя
+            if (isTypingName) {
+                if (e.key === 'Enter') {
                     submitName();
                 }
                 return;
             }
 
+            // Если пишем в чат
+            if (isTyping) {
+                if (e.key === 'Enter') {
+                    // Отправляем сообщение
+                    isTyping = false;
+                    const text = chatInput.value.trim();
+                    if (text !== '') {
+                        socket.emit('chatMessage', text);
+                    }
+                    chatInput.value = '';
+                    chatInput.blur();
+                    canvas.focus();
+                }
+                return;
+            }
+
+            // Обычный игровой режим
             if (e.key === 'Enter') {
                 // Включаем режим ввода текста
                 isTyping = true;
